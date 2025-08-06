@@ -1,0 +1,6 @@
+.env
+*.csv
+*.o
+*.out
+*.exe
+build/
