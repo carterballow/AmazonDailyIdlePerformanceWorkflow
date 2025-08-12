@@ -1,33 +1,25 @@
 import pandas as pd
 from datetime import datetime, timedelta
-import requests # Import the requests library
+import requests 
 import os
 from dotenv import load_dotenv
-import time # Import the time library for timing
+import time 
 load_dotenv()
 
-# --- CONFIGURATION ---
-# Updated to match your specific file and column names.
+# CONFIG
 
-# The path to your CSV file.
 CSV_FILE_PATH = r"C:\Users\cballow\Documents\GitHub\AmazonDailyIdlePerformanceWorkflow\data.csv"
 
-# Your Slack webhook URL. Paste the NEW URL from your Slack App here.
 SLACK_WEBHOOK_URL = os.environ.get("WEBHOOK_URL")
 
-# The exact column names from your CSV file.
 DATE_COLUMN = "Start Time (Local)"
 SHIFT_COLUMN = "Shift Code"
 EMPLOYEE_COLUMN = "Driver"
 IDLE_TIME_COLUMN = "Idle Time"
 
-# The hour at which a shift is considered a "late shift" for special filtering (e.g., 20 for 8 PM)
 LATE_SHIFT_START_HOUR = 20
-# Updated benchmark idle time
 BENCHMARK_IDLE_TIME = 0.68
 
-
-# --- HELPER FUNCTION FOR FORMATTING ---
 
 def get_impact_emoji(idle_impact):
     """Returns a color-coded emoji based on the Idle Impact value."""
@@ -42,7 +34,6 @@ def get_impact_emoji(idle_impact):
 
 def get_site_average_emoji(site_average):
     """Returns a color-coded emoji based on the site-wide average idle time."""
-    # Updated logic based on new thresholds
     if site_average > 1.35:
         return '🔴' # Very Bad
     elif site_average > 1.00:
@@ -57,18 +48,13 @@ def format_for_slack(df, headers=["Status", "Driver", "Avg Idle Time", "% of Mov
     Takes a DataFrame and formats it into a text-based table string
     with borders, suitable for a Slack code block.
     """
-    # Create a copy to avoid modifying the original DataFrame
     df_display = df.copy()
 
-    # Format the numeric columns into nice strings for display
     df_display["Avg Idle Time"] = df_display["Avg Idle Time"].map('{:.2f}'.format)
-    df_display["% of Moves"] = df_display["% of Moves"].map('{:.1%}'.format) # Formats as percentage
-    df_display["Idle Impact"] = df_display["Idle Impact"].map('{:+.2f}'.format) # Shows + or - sign
+    df_display["% of Moves"] = df_display["% of Moves"].map('{:.1%}'.format) 
+    df_display["Idle Impact"] = df_display["Idle Impact"].map('{:+.2f}'.format) 
 
-    # Add a space to the emoji to help with monospace alignment before calculating width
     df_display["Status"] = df_display["Status"] + ' '
-
-    # Determine the maximum width needed for each column
     col_widths = {col: max(df_display[col].astype(str).apply(len).max(), len(col)) for col in df_display.columns}
 
     separator = "+-" + "-+-".join(['-' * col_widths[col] for col in df_display.columns]) + "-+"
@@ -97,7 +83,7 @@ def format_summary_box(summary_parts):
     return "\n".join(boxed_lines)
 
 
-# --- SCRIPT LOGIC ---
+# SCRIPT LOGIC
 
 def analyze_day_performance(file_path, target_day_str):
     """
@@ -108,7 +94,6 @@ def analyze_day_performance(file_path, target_day_str):
         overall_start_time = time.time()
         print("Starting the daily report workflow...")
 
-        # --- Data Reading and Processing ---
 
         print("\nStep 1: Reading CSV file...")
         step_time = time.time()
@@ -163,21 +148,17 @@ def analyze_day_performance(file_path, target_day_str):
         sorted_shifts = sorted(all_shifts_in_report, key=shift_sort_key)
         print(f"\nFound data for shifts: {sorted_shifts}")
 
-        # --- Build the Slack Message ---
         print("\nStep 5: Building the Slack message...")
 
-        # Main message title
         message_parts = []
         formatted_date = pd.to_datetime(target_day_str).strftime('%A, %B %d')
         message_parts.append(f"📊 *Daily Idling Time Report for {formatted_date}*")
 
-        # Add Site Average and Benchmark (bolded labels)
-        site_status_emoji = get_site_average_emoji(site_average) # Uses special logic for site average
+        site_status_emoji = get_site_average_emoji(site_average) 
         difference = site_average - BENCHMARK_IDLE_TIME
         message_parts.append(f"\n*Site-wide Daily Average:* {site_average:.2f} {site_status_emoji}")
         message_parts.append(f"*Benchmark:* {BENCHMARK_IDLE_TIME:.2f} (Difference: {difference:+.2f})")
 
-        # --- Create a formatted summary block ---
         summary_parts = []
         idle_impact_key = (
             "Idle Impact Key:  (Impact = (Avg Idle - Benchmark) * Moves)",
@@ -187,7 +168,7 @@ def analyze_day_performance(file_path, target_day_str):
             "  🔴 Very Bad:  20+"
         )
         summary_parts.extend(idle_impact_key)
-        summary_parts.append("") # Add a blank line for spacing
+        summary_parts.append("") 
 
         summary_parts.append("Top 5 Highest Idle Time Incidents")
         top_5 = activity_on_target_day.nlargest(5, IDLE_TIME_COLUMN)
@@ -198,9 +179,8 @@ def analyze_day_performance(file_path, target_day_str):
             summary_parts.append(f"  - {driver}: {idle_time:.2f} at {incident_time}")
 
         summary_block = format_summary_box(summary_parts)
-        message_parts.append(f"```{summary_block}```") # Wrap summary in a code block
+        message_parts.append(f"```{summary_block}```") 
 
-        # Generate the report string for each shift
         all_shift_reports = []
         for shift_name in sorted_shifts:
             shift_activity = activity_on_target_day[activity_on_target_day['Reporting Shift'] == shift_name].copy()
@@ -209,7 +189,6 @@ def analyze_day_performance(file_path, target_day_str):
                 Move_Count=(IDLE_TIME_COLUMN, 'size')
             )
             shift_summary['% of Moves'] = shift_summary['Move_Count'] / total_daily_moves
-            # REVERTED LOGIC: Compare to the fixed BENCHMARK_IDLE_TIME
             shift_summary['Idle Impact'] = (shift_summary['Avg_Idle_Time'] - BENCHMARK_IDLE_TIME) * shift_summary['Move_Count']
             shift_summary.insert(0, "Status", shift_summary["Idle Impact"].apply(get_impact_emoji))
             shift_summary = shift_summary.sort_values('Idle Impact') # Sort by the new Idle Impact
@@ -233,12 +212,11 @@ def analyze_day_performance(file_path, target_day_str):
 
             all_shift_reports.append("\n".join(shift_report_parts))
 
-        # --- Find split point and send messages ---
         split_index = -1
         for i, shift_name in enumerate(sorted_shifts):
             cleaned_shift = shift_name.split(' ')[0]
             try:
-                if int(cleaned_shift) < 600: # Split after shifts starting before 6 AM
+                if int(cleaned_shift) < 600: 
                     split_index = i
             except ValueError:
                 continue
@@ -279,11 +257,9 @@ def send_to_slack(message):
         print(f"-> Error connecting to Slack: {e}")
 
 
-# --- MAIN EXECUTION BLOCK ---
 if __name__ == "__main__":
     yesterday = datetime.now() - timedelta(days=1)
     yesterday_str = yesterday.strftime('%Y-%m-%d')
 
-    # Always run the daily report
     print(f"Automatically running analysis for yesterday: {yesterday_str}")
     analyze_day_performance(CSV_FILE_PATH, yesterday_str)
